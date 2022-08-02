@@ -86,9 +86,8 @@ def _read_go_version_from_dockerfile():
 	dockerfile_path = path.join(path.dirname(path.dirname(path.dirname(path.realpath(__file__)))), 'build', 'Dockerfile')
 	with open(dockerfile_path, 'r') as f:
 		for line in f:
-			m = re.match('^FROM golang:(\S*)$', line)
-			if m:
-				return m.group(1)
+			if m := re.match('^FROM golang:(\S*)$', line):
+				return m[1]
 	raise RuntimeError("Failed to read Go version from weave/build/Dockerfile. You may be running this script from somewhere else than weave/tools.")
 
 def _try_set_min_go_version():
@@ -96,7 +95,7 @@ def _try_set_min_go_version():
 	try:
 		DEPS['go']['min'] = _read_go_version_from_dockerfile()
 	except IOError as e:
-		stderr.write('WARNING: No minimum Go version set. Root cause: %s%s' % (e, linesep))
+		stderr.write(f'WARNING: No minimum Go version set. Root cause: {e}{linesep}')
 
 def _sanitize(out):
 	return out.decode('ascii').strip().split(linesep)
@@ -107,19 +106,23 @@ def _parse_tag(tag, version_pattern, debug=False):
 	'1.4.6'
 	'''
 	pattern = _TAG_REGEX % version_pattern
-	m = re.match(pattern, tag)
-	if m:
-		return m.group(_VERSION)
+	if m := re.match(pattern, tag):
+		return m[_VERSION]
 	elif debug:
-		stderr.write('ERROR: Failed to parse version out of tag [%s] using [%s].%s' % (tag, pattern, linesep))
+		stderr.write(
+			f'ERROR: Failed to parse version out of tag [{tag}] using [{pattern}].{linesep}'
+		)
 
 def get_versions_from(git_repo_url, version_pattern):
 	''' Get release and release candidates' versions from the provided Git repository. '''
-	git = Popen(shlex.split('git ls-remote --tags %s' % git_repo_url), stdout=PIPE)
+	git = Popen(shlex.split(f'git ls-remote --tags {git_repo_url}'), stdout=PIPE)
 	out, err = git.communicate()
 	status_code = git.returncode
 	if status_code != 0:
-		raise RuntimeError('Failed to retrieve git tags from %s. Status code: %s. Output: %s. Error: %s' % (git_repo_url, status_code, out, err))
+		raise RuntimeError(
+			f'Failed to retrieve git tags from {git_repo_url}. Status code: {status_code}. Output: {out}. Error: {err}'
+		)
+
 	return list(filter(None, (_parse_tag(line, version_pattern) for line in _sanitize(out))))
 
 def _tree(versions, level=0):
@@ -128,11 +131,10 @@ def _tree(versions, level=0):
 		return  # Empty versions or no more digits to group by.
 	versions_tree = []
 	for _, versions_group in groupby(versions, lambda v: v.digits[level]):
-		subtree = _tree(list(versions_group), level+1)
-		if subtree:
+		if subtree := _tree(list(versions_group), level + 1):
 			versions_tree.append(subtree)
 	# Return the current subtree if non-empty, or the list of "leaf" versions:
-	return versions_tree if versions_tree else versions
+	return versions_tree or versions
 
 def _is_iterable(obj):
 	''' 
@@ -197,15 +199,14 @@ def filter_versions(versions, min_version=None, rc=False, latest=False):
 		versions = [v for v in versions if v >= min_version]
 	if not rc:
 		versions = [v for v in versions if not v.is_rc]
-	if latest:
-		versions_tree = _tree(versions)
-		return _leaf_versions(versions_tree, rc)
-	else:
+	if not latest:
 		return versions
+	versions_tree = _tree(versions)
+	return _leaf_versions(versions_tree, rc)
 
 def _usage(error_message=None):
 	if error_message:
-		stderr.write('ERROR: ' + error_message + linesep)
+		stderr.write(f'ERROR: {error_message}{linesep}')
 	stdout.write(linesep.join([
 		'Usage:',
 		'    list_versions.py [OPTION]... [DEPENDENCY]',
@@ -238,15 +239,15 @@ def _validate_input(argv):
 			if opt in ('-r', '--rc'):
 				config['rc'] = True
 		if len(args) != 1:
-			raise ValueError('Please provide a dependency to get versions of. Expected 1 argument but got %s: %s.' % (len(args), args))
+			raise ValueError(
+				f'Please provide a dependency to get versions of. Expected 1 argument but got {len(args)}: {args}.'
+			)
+
 		dependency=args[0].lower()
 		if dependency not in DEPS.keys():
 			raise ValueError('Please provide a valid dependency. Supported one dependency among {%s} but got: %s.' % (', '.join(DEPS.keys()), dependency))
 		return dependency, config
-	except GetoptError as e:
-		_usage(str(e))
-		exit(_ERROR_ILLEGAL_ARGS)
-	except ValueError as e:
+	except (GetoptError, ValueError) as e:
 		_usage(str(e))
 		exit(_ERROR_ILLEGAL_ARGS)
 
@@ -259,7 +260,7 @@ def main(argv):
 		versions = filter_versions(versions, DEPS[dependency]['min'], **config)
 		print(linesep.join(map(str, versions)))
 	except Exception as e:
-		print(str(e))
+		print(e)
 		exit(_ERROR_RUNTIME)
 
 if __name__ == '__main__':

@@ -26,10 +26,7 @@ class Test(ndb.Model):
   def parallelism(self):
     name = self.key.string_id()
     m = re.search('(\d+)_test.sh$', name)
-    if m is None:
-      return 1
-    else:
-      return int(m.group(1))
+    return 1 if m is None else int(m[1])
 
   def cost(self):
     p = self.parallelism()
@@ -64,9 +61,8 @@ def schedule(test_run, shard_count, shard):
   # if not, do simple greedy algorithm
   test_times = ndb.get_multi(ndb.Key(Test, test_name) for test_name in test_names)
   def avg(test):
-    if test is not None:
-      return test.cost()
-    return 1
+    return test.cost() if test is not None else 1
+
   test_times = [(test_name, avg(test)) for test_name, test in zip(test_names, test_times)]
   test_times_dict = dict(test_times)
   test_times.sort(key=operator.itemgetter(1))
@@ -96,8 +92,7 @@ NAME_REGEXES = [
 
 def _matches_any_regex(name, regexes):
   for regex in regexes:
-    matches = regex.match(name)
-    if matches:
+    if matches := regex.match(name):
       return matches
 
 PROJECTS = [
@@ -128,8 +123,10 @@ def gc_project(compute, repo, project, zone, gc_fw):
     _gc_firewall_rules(compute, project, running)
 
 def _get_running_builds(repo):
-  result = urlfetch.fetch('https://circleci.com/api/v1/project/%s' % repo,
-    headers={'Accept': 'application/json'})
+  result = urlfetch.fetch(
+      f'https://circleci.com/api/v1/project/{repo}',
+      headers={'Accept': 'application/json'},
+  )
   assert result.status_code == 200
   builds = json.loads(result.content)
   running = {build['build_num'] for build in builds if not build.get('stop_time')}
@@ -139,10 +136,8 @@ def _get_running_builds(repo):
 def _get_hosts_by_build(instances):
   host_by_build = collections.defaultdict(list)
   for instance in instances['items']:
-    matches = _matches_any_regex(instance['name'], NAME_REGEXES)
-    if not matches:
-      continue
-    host_by_build[int(matches.group('build'))].append(instance['name'])
+    if matches := _matches_any_regex(instance['name'], NAME_REGEXES):
+      host_by_build[int(matches.group('build'))].append(instance['name'])
   logging.info("Running VMs by build: %r", host_by_build)
   return host_by_build
 
